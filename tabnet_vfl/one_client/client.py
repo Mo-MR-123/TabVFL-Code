@@ -7,9 +7,11 @@ from torch.nn import Linear
 import torch.distributed.rpc as rpc
 from torch.utils.data import DataLoader
 from torch.nn import functional as F
+# from sklearn.model_selection import train_test_split
 import numpy as np
 import os
 from torch.nn import BatchNorm1d, Dropout, LeakyReLU, Linear, Module, Sequential, MSELoss, Sigmoid
+# from sklearn.utils import shuffle
 import warnings
 from torchinfo import summary
 warnings.filterwarnings("ignore")
@@ -17,19 +19,8 @@ warnings.filterwarnings("ignore")
 from tabnet_vfl.one_client.tabnet_client_model import RandomObfuscator, UnsupervisedLoss
 from tabnet_vfl.one_client.tabnet_utils import create_group_matrix, initialize_non_glu
 
-random_seed = 42
-
-# Set the random seed for NumPy
-np.random.seed(random_seed)
-
-# Set the random seed for PyTorch CPU operations
-torch.manual_seed(random_seed)
-
-# Set the random seed for PyTorch GPU operations (if available)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(random_seed)
-
 # Global constants
+# SEED = 42
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 def param_rrefs(module):
@@ -37,6 +28,7 @@ def param_rrefs(module):
     param_rrefs = []
     for param in module.parameters():
         param_rrefs.append(rpc.RRef(param))
+    # print(param_rrefs)
     return param_rrefs
 
 class LocalEncoder(Module):
@@ -45,6 +37,7 @@ class LocalEncoder(Module):
         input_dim,
         group_matrix, 
         pretraining_ratio, 
+        # transformer_output_dim,
     ):
         super(LocalEncoder, self).__init__()
 
@@ -60,7 +53,9 @@ class LocalEncoder(Module):
         self.masker = RandomObfuscator(pretraining_ratio=pretraining_ratio, group_matrix=group_matrix)
 
     def forward(self, x, is_training):
+        # if self.is_training:
         if is_training:
+            # print("Training Local Encoder")
             masked_x, obfuscated_groups, obfuscated_vars = self.masker(x)
             # set prior of encoder with obfuscated groups
             prior = 1 - obfuscated_groups
@@ -68,6 +63,7 @@ class LocalEncoder(Module):
             x_fc = self.fc_layer(x_bn)
             return x_fc, x, prior, obfuscated_vars
         else:
+            # print("Not training Local Encoder")
             x_bn = self.bn(x)
             x_fc = self.fc_layer(x_bn)
             return x_fc
@@ -151,7 +147,6 @@ class TabNetClient():
         # construct local dataloader
         self.data_loader = DataLoader(self.X_train.to_numpy(), self.batch_size, shuffle=False)
         self.iterloader = iter(self.data_loader)
-
         print(f"{client_id=}, ------------------- INIT END -------------------")
 
     def get_local_encoder_dim(self):
@@ -172,7 +167,6 @@ class TabNetClient():
         torch.manual_seed(self.seed)
         self.local_decoder = Linear(self.decoder_input_nd_dim, self.input_dim, bias=False).to(self.device)
         initialize_non_glu(self.local_decoder, self.decoder_input_nd_dim, self.input_dim)
-
         print(f"{self.client_id=} ------------------- INIT DECODER END -------------------")
 
     def init_encoder(self):
@@ -184,6 +178,7 @@ class TabNetClient():
             group_matrix=self.group_attention_matrix,
             pretraining_ratio=self.pretraining_ratio,
         ).to(self.device)
+
         print(f"{self.client_id=} ------------------- INIT ENCODER END -------------------")
     
     def reset_iterloader(self) -> None:
@@ -203,6 +198,7 @@ class TabNetClient():
         assert self.local_encoder.training == False, "local encoder is not in eval mode"
 
         with torch.no_grad():
+            # convert numbers to float of the current batch of data
             validation_samples = torch.from_numpy(self.X_valid.to_numpy()).to(self.device).float()
 
             if is_pretraining:
@@ -314,7 +310,6 @@ class TabNetClient():
             assert is_pretraining == True
 
             intermediate_masked_x_bn, embedded_x, prior, obfuscated_vars = self.local_encoder(curr_batch_of_data, is_pretraining)
-
             self.intermediate_output_bn = intermediate_masked_x_bn
             self.curr_embedded_x = embedded_x
             self.curr_obfuscated_vars = obfuscated_vars
@@ -329,6 +324,7 @@ class TabNetClient():
             assert is_pretraining == False, "pretraining is done"
 
             intermediate_output = self.local_encoder(curr_batch_of_data, is_pretraining)
+
             if self.use_cuda:
                 return intermediate_output.cpu()
             else:
@@ -381,7 +377,7 @@ class TabNetClient():
             self.local_encoder.cuda()
             self.local_decoder.cuda()
         
-        assert self.local_encoder is not None and self.local_decoder is not None
+        assert self.local_encoder is not None and self.local_decoder is not None 
 
     def get_data_length(self):
         return len(self.X_train)

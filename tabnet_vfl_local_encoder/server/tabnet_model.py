@@ -6,12 +6,14 @@ import numpy as np
 def initialize_non_glu(module, input_dim, output_dim):
     gain_value = np.sqrt((input_dim + output_dim) / np.sqrt(4 * input_dim))
     torch.nn.init.xavier_normal_(module.weight, gain=gain_value)
+    # torch.nn.init.zeros_(module.bias)
     return
 
 
 def initialize_glu(module, input_dim, output_dim):
     gain_value = np.sqrt((input_dim + output_dim) / np.sqrt(input_dim))
     torch.nn.init.xavier_normal_(module.weight, gain=gain_value)
+    # torch.nn.init.zeros_(module.bias)
     return
 
 # credits to Yandex https://github.com/Qwicen/node/blob/master/lib/nn_utils.py

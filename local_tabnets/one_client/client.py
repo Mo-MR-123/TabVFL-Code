@@ -16,22 +16,11 @@ from torchinfo import summary
 
 from shared.general_utils import infer_optimizer
 
-random_seed = 42
-
-# Set the random seed for NumPy
-np.random.seed(random_seed)
-
-# Set the random seed for PyTorch CPU operations
-torch.manual_seed(random_seed)
-
-# Set the random seed for PyTorch GPU operations (if available)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(random_seed)
-
+# SEED = 42
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
-def save_losses_pretraining_plot(
+def save_losses_plot(
     train_losses: list, 
     valid_losses: list,
     experiment_name: str, 
@@ -178,12 +167,12 @@ class LocalTabNetClient():
         # Pretrainer TabNet Hyperparameters
         self.tabnet_pretrain_params = dict(
             **tabnet_hyperparams,
+            # optimizer_fn=infer_optimizer(optimizer),
             optimizer=optimizer,
             optimizer_params=optimizer_params,
             seed=self.seed,
             device_name=self.device,
         )
-        # print(self.tabnet_pretrain_params)
 
         self.pretraining_fit_params = dict(
             **tabnet_pretrainer_fit_params,
@@ -214,15 +203,6 @@ class LocalTabNetClient():
             self.client_id,
         )
 
-        # save pretraining plots and train/valid values
-        save_losses_pretraining_plot(
-            train_losses=self.local_tabnet_pretrainer.history["loss"], 
-            valid_losses=self.local_tabnet_pretrainer.history["valid_unsup_loss_numpy"],
-            experiment_name="pretraining",
-            client_id=self.client_id,
-            title="Local TabNet Pretraining Train + Valid Loss"
-        )
-
         self.pretraining_done = True
 
         # use fit function of modified finetuner to set model of finetuner to the pretrainer model
@@ -234,11 +214,28 @@ class LocalTabNetClient():
             from_unsupervised=self.local_tabnet_pretrainer,
             drop_last=self.pretraining_fit_params["drop_last"],
             virtual_batch_size=self.pretraining_fit_params["virtual_batch_size"],
-            patience=self.pretraining_fit_params["patience"],
+            patience=0,
             num_workers=self.pretraining_fit_params["num_workers"],
             max_epochs=self.epochs,
             batch_size=self.batch_size,
         )
+
+    def premature_fit_finetuner(self):
+        self.local_tabnet_pretrainer._set_network()
+        self.local_tabnet_finetuner.fit(
+            X_train=self.X_train,
+            y_train=self.y_train,
+            eval_set=[(self.X_valid, self.y_valid)],
+            eval_name=["valid_losses"],
+            from_unsupervised=self.local_tabnet_pretrainer,
+            drop_last=self.pretraining_fit_params["drop_last"],
+            virtual_batch_size=self.pretraining_fit_params["virtual_batch_size"],
+            patience=0,
+            num_workers=self.pretraining_fit_params["num_workers"],
+            max_epochs=self.epochs,
+            batch_size=self.batch_size,
+        )
+        print(f"Prematurely fitted finetuner: {self.local_tabnet_finetuner=}")
 
     def get_latent_dim(self):
         return self.tabnet_pretrain_params["n_d"]
@@ -304,7 +301,6 @@ class LocalTabNetClient():
     ):
         self.local_tabnet_finetuner.network.eval()
 
-        assert self.pretraining_done is True
         assert self.local_tabnet_finetuner.network.training is False
         assert self.local_tabnet_finetuner.network.tabnet.training is False
         assert self.local_tabnet_finetuner.network.tabnet.encoder.training is False
@@ -464,3 +460,50 @@ def run(
     print("client"+str(rank)+" is joining")
 
     rpc.shutdown()
+
+def run_from_cmd(
+    rank, 
+    world_size, 
+    ip, 
+    port,  
+):
+    if rank == 0:
+        raise ValueError("rank 0 is reserved for the server")
+        
+    # set environment information
+    os.environ["MASTER_ADDR"] = ip
+    os.environ["MASTER_PORT"] = str(port)
+    os.environ["WORLD_SIZE"] = str(world_size)
+    os.environ["RANK"] = str(rank)
+    print("world size: ", world_size, f"tcp://{ip}:{port}")
+    
+    rpc.init_rpc(
+        "client"+str(rank),
+        rank=rank,
+        world_size=world_size,
+        backend=rpc.BackendType.PROCESS_GROUP,
+        rpc_backend_options=rpc.ProcessGroupRpcBackendOptions(
+            num_send_recv_threads=4, rpc_timeout=999999, init_method=f"tcp://{ip}:{port}"
+        ),
+    )
+    print("client"+str(rank)+" is joining")
+
+    rpc.shutdown()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rank", type=int, default=0)
+    parser.add_argument("--ip", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7788)
+    parser.add_argument("--world_size", type=int, default=2)
+    args = parser.parse_args()
+
+    if args.rank is not None:
+        # run with a specified rank (need to start up another process with the opposite rank elsewhere)
+        run_from_cmd(
+            rank=args.rank,
+            world_size=args.world_size,
+            ip=args.ip,
+            port=args.port,
+        )

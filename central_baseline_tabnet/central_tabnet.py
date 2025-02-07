@@ -213,6 +213,8 @@ class CentralTabnet:
         logger.info(f"Using optimizer: {self.optimizer}")
         logger.info(f"Using optimizer_params: {self.optimizer_params}")
         logger.info(f"Using cols_info_dict: {self.cols_info_dict}")
+
+        # target_type = type_of_target(self.raw_df_labels)
         logger.info(f"Target type: {self.task_type}")
 
         print(f"X_train: {self.X_train=}")

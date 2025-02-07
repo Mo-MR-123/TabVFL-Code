@@ -134,8 +134,11 @@ dmypy.json
 # ignore saved model binary files
 *.zip
 
+# ignore png images of results for now
+# *.png
+
 # ignore slurm out files
 slurm*.out
 
 .vscode
-*.png
+myenv

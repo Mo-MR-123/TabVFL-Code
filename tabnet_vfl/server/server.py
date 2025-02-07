@@ -24,18 +24,6 @@ from shared.general_utils import infer_optimizer, evaluate_multiple_predictors, 
 from shared.tabnet_logger import TabNetLogger
 from tabnet_vfl.one_client.client import TabNetClient
 
-random_seed = 42
-
-# Set the random seed for NumPy
-np.random.seed(random_seed)
-
-# Set the random seed for PyTorch CPU operations
-torch.manual_seed(random_seed)
-
-# Set the random seed for PyTorch GPU operations (if available)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(random_seed)
-
 # Global constants
 SCRIPT_DIR = Path(__file__).resolve().parent
 SCRIPT_NAME = Path(__file__).stem
@@ -49,57 +37,65 @@ def param_rrefs(module):
     param_rrefs = []
     for param in module.parameters():
         param_rrefs.append(rpc.RRef(param))
+    # logger.info(param_rrefs)
     return param_rrefs
 
 
-def save_train_and_valid_metrics(
-    list_train_losses: list,
-    list_valid_f1_scores: list, 
-    list_valid_accuracy_scores: list, 
-    list_valid_roc_auc_scores: list, 
+def save_losses_plot(
+    list_train_losses: list, 
+    list_valid_losses: list, 
     training_phase: str, 
     title: str
 ) -> None:
-    assert training_phase == "finetuning" or training_phase == "pretraining", "training phase string must be either finetuning or pretraining"
-
-    if list_train_losses and list_valid_f1_scores and list_valid_accuracy_scores and list_valid_roc_auc_scores:
-        assert len(list_train_losses) == len(list_valid_f1_scores) == len(list_valid_accuracy_scores) == len(list_valid_roc_auc_scores), "The validation lists should have the same length."
+    assert len(list_train_losses) == len(list_valid_losses), "The training and validation losses should have the same length."
 
     with plt.style.context("ggplot"):
         # for testing whether the training loss is decreasing and converging to a certain value 
         fig, ax = plt.subplots(figsize=(9, 11))
 
-        file_path_loss = str(SCRIPT_DIR / f"{training_phase}_train_loss_valid_metrics_values_tabvfl.npz")
-        name_image_file = str(SCRIPT_DIR / f"{training_phase}_train_loss_valid_metrics_plots_tabvfl.pdf")
+        file_path_loss = str(SCRIPT_DIR / f"{training_phase}_loss_values_tabnetvfl.npz")
+        name_image_file = str(SCRIPT_DIR / f"{training_phase}_loss_plot_tabnetvfl.pdf")
 
-        np.savez_compressed(
-            file_path_loss, 
-            train_losses=list_train_losses,
-            valid_f1_scores=list_valid_f1_scores, 
-            valid_accuracy_scores=list_valid_accuracy_scores,
-            valid_roc_auc_scores=list_valid_roc_auc_scores
-        )
+        np.savez_compressed(file_path_loss, train_losses=list_train_losses, valid_losses=list_valid_losses)
 
         ax.set_title(title)
-        if training_phase == "finetuning":
-            ax.plot(list_train_losses, label='Train Losses (cross-entropy)', color='green')
-            ax.plot(list_valid_f1_scores, label='Valid F1-Score', color='blue')
-            ax.plot(list_valid_accuracy_scores, label='Valid Accuracy', color='orange')
-            ax.plot(list_valid_roc_auc_scores, label='Valid ROC-AUC', color='red')
-        else:
-            ax.plot(list_train_losses, label='Train Losses (UnsupervisedLoss)', color='green')
-            ax.plot(list_valid_f1_scores, label='Valid UnsupervisedLoss', color='blue')
-
+        ax.plot(list_train_losses, label='Training Loss', color='blue')
+        ax.plot(list_valid_losses, label='Validation Loss', color='orange')
 
         # Add labels and title
         ax.set_xlabel('Epochs')
-        ax.set_ylabel('Score')
+        ax.set_ylabel('Loss')
         plt.legend()  # Show legend
 
         fig.savefig(name_image_file, format='pdf', dpi=300, bbox_inches='tight', pad_inches=0.5)
         
         plt.show()
         plt.close(fig)
+
+def histogram_client_offline_counts(dict_client_offline_counts: dict, training_phase: str):
+    with plt.style.context("ggplot"):
+        # Extract keys and values
+        keys = list(dict_client_offline_counts.keys())
+        values = list(dict_client_offline_counts.values())
+
+        # Save the dictionary as an npz file
+        np.savez_compressed(SCRIPT_DIR / f'histogram_offline_counts_clients_{training_phase}_tabnetvfl.npz', **dict_client_offline_counts)
+        
+        # Create subplots
+        fig, ax = plt.subplots(figsize=(9, 11))
+
+        # Plot histogram
+        ax.bar(keys, values)
+
+        # Add labels and title
+        ax.set_xlabel('Client IDs')
+        ax.set_ylabel('Maximum Loss Difference (Absolute Values)') # between precious and current iteration
+        ax.set_title(f'Histogram of maximum loss difference reached when clients go offline during {training_phase}')
+
+        fig.savefig(str(SCRIPT_DIR / f'histogram_offline_counts_clients_{training_phase}.pdf'), format="pdf", dpi=300, bbox_inches='tight', pad_inches=0.5)
+
+        # Show the plot
+        plt.show()
 
 def save_epoch_times_and_plot(values: list, training_phase: str):
     with plt.style.context("ggplot"):
@@ -183,6 +179,16 @@ class TabNetServer():
         # Path used to save the ROC curve data generated during evaluation
         self.eval_results_path = SCRIPT_DIR / eval_out
         
+        # settings client failure simulation
+        self.handle_client_failures_pretraining = False
+        self.handle_client_failures_finetuning = False
+        self.rng_failure = np.random.default_rng(self.seed)  # Create a random number generator with the specified seed
+        self.epoch_failure_probability = epoch_failure_probability # probability of a client being offline in a given epoch
+        self.use_caching_method = True
+        self.mini_batch_client_failure = False
+        self.pretrain_epochs = self.epochs
+        self.finetune_epochs = self.epochs
+
         self.patience_pretraining = 10 # early stopping patience pretrain
         self.patience_finetuning = 10 # early stopping patience finetune
 
@@ -196,6 +202,13 @@ class TabNetServer():
         logger.info(f"Seed: {self.seed}")
         logger.info(f"Task type: {self.task_type}")
         logger.info(f"device: {self.device}")
+        logger.info(f"{self.pretrain_epochs=}")
+        logger.info(f"{self.finetune_epochs=}")
+        logger.info(f"{self.epoch_failure_probability=}")
+        logger.info(f"{self.handle_client_failures_finetuning=}")
+        logger.info(f"{self.handle_client_failures_pretraining=}")
+        logger.info(f"{self.use_caching_method=}")
+        logger.info(f"{self.mini_batch_client_failure=}")
 
         # keep a reference to the client
         self.client_rrefs = []
@@ -250,7 +263,6 @@ class TabNetServer():
 
         # uniform splits of n_d of local decoders at clients
         self.local_decoder_split_ratios = self.uniform_distribution_decoder_splits(self.n_d, self.client_rrefs)
-        # self.local_decoder_split_ratios = self.distribute_decoder_splits(self.n_d, self.client_rrefs, decoder_split_ratios)
         logger.info(f"local_decoder_split_ratios: {self.local_decoder_split_ratios.values()}")
 
         if sum(self.local_decoder_split_ratios.values()) != self.n_d:
@@ -312,6 +324,23 @@ class TabNetServer():
         self.final_fc_mapping = torch.nn.Linear(self.n_d, self.unique_class_labels_count, bias=False).to(self.device)
         initialize_non_glu(self.final_fc_mapping, self.n_d, self.unique_class_labels_count)
         logger.info(f"self.final_fc_mapping: {self.final_fc_mapping}") 
+
+        if self.use_caching_method and self.handle_client_failures_finetuning:
+            self.client_to_tensor_batches = {}
+            # init dict
+            for client_rref in self.client_rrefs:
+                self.client_to_tensor_batches[client_rref] = []
+            print(f"{self.client_to_tensor_batches=}")
+
+        if self.use_caching_method and self.handle_client_failures_pretraining:
+            self.client_to_tensor_batches_pretrain = {}
+            self.client_to_tensor_masks_pretrain = {}
+            # init dicts
+            for client_rref in self.client_rrefs:
+                self.client_to_tensor_batches_pretrain[client_rref] = []
+                self.client_to_tensor_masks_pretrain[client_rref] = []
+            print(f"{self.client_to_tensor_batches_pretrain=}")
+            print(f"{self.client_to_tensor_masks_pretrain=}")
 
         # create list of param_rrefs for pretraining TabNet encoder-decoder
         # in server side and client side
@@ -392,8 +421,14 @@ class TabNetServer():
             data = next(self.iterloader)
             logger.info("StopIteration: iterloader is reset and new batch is loaded")
         return data
-    
-    def forward_pass_finetuning(self) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def forward_pass_finetuning(
+        self, 
+        clients_offline: list,
+        simulate_client_failure: bool, 
+        last_batch: bool,
+        batch_idx: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         This function performs a forward pass of the TabNet encoder
         """
@@ -405,19 +440,53 @@ class TabNetServer():
 
         # get output from local models
         for client_rref in self.client_rrefs:
+            if self.handle_client_failures_finetuning:
+                if client_rref in clients_offline and simulate_client_failure:
+                    # skipping corresponding batch of the skipped client to keep batch size consistent
+                    client_rref.rpc_sync().get_batch_data()
+                    continue
             future_object_encoder_dict[client_rref] = client_rref.rpc_async().forward_pass_encoder(is_pretraining=False)
 
-        for client_rref in self.client_rrefs:
+        for client_idx, client_rref in enumerate(self.client_rrefs):
+            if self.handle_client_failures_finetuning:
+                if client_rref in clients_offline and simulate_client_failure:
+                    if self.use_caching_method:
+                        tensor_offline_client = self.client_to_tensor_batches[client_rref][batch_idx].detach().clone()
+                    else:
+                        if last_batch:
+                            last_batch_size = self.y_train_len % self.batch_size
+                            tensor_offline_client = torch.zeros(
+                                (last_batch_size, self.output_encoder_clients_dims_list[client_idx]),
+                                requires_grad=True
+                            )
+                        else:
+                            tensor_offline_client = torch.zeros(
+                                (self.batch_size, self.output_encoder_clients_dims_list[client_idx]),
+                                requires_grad=True
+                            )
+                    intermediate_results_encoder_dict[client_rref] = tensor_offline_client
+                    continue
+
             # wait for each future object to be ready
             client_inter_output_logits = future_object_encoder_dict[client_rref].wait()
 
             # append the intermediate value to the list
             intermediate_results_encoder_dict[client_rref] = client_inter_output_logits
 
+            # cache intermediate result of current online client 
+            # to reuse when it goes offline
+            if self.use_caching_method and self.handle_client_failures_finetuning:
+                # replace existing value with new batch values
+                if 0 <= batch_idx < len(self.client_to_tensor_batches[client_rref]):
+                    self.client_to_tensor_batches[client_rref][batch_idx] = client_inter_output_logits.detach().clone()
+                else: # insert new batch values since they don't exist at batch_idx yet
+                    self.client_to_tensor_batches[client_rref].insert(batch_idx, client_inter_output_logits.detach().clone())
+
         # concatenate the intermediate tensor values from all clients by column, 
+        # e.g. cat([[1,2,3]], [[4,5,6]]) -> [[1,2,3,4,5,6]]
         input_intermediate_logits = torch.cat(list(intermediate_results_encoder_dict.values()), dim = 1).to(self.device)
 
-        # forward pass of TabNet partial models 
+        # forward pass of TabNet partial models
         encoder_output_steps, M_loss = self.partial_encoder(input_intermediate_logits)
         
         # aggregate encoder output from all clients to one latent vector of
@@ -451,7 +520,7 @@ class TabNetServer():
                 future_object_encoder_dict[client_rref] = client_rref.rpc_async().forward_pass_encoder_valid_data()
             else:
                 future_object_encoder_dict[client_rref] = client_rref.rpc_async().forward_pass_encoder_train_data()
-
+            
         for client_rref in self.client_rrefs:
             # wait for each future object to be ready
             client_inter_output_logits = future_object_encoder_dict[client_rref].wait()
@@ -462,7 +531,7 @@ class TabNetServer():
         # e.g. cat([[1,2,3]], [[4,5,6]]) -> [[1,2,3,4,5,6]]
         input_intermediate_logits = torch.cat(list(intermediate_results_encoder_dict.values()), dim = 1).to(self.device)
 
-        # forward pass of TabNet partial models 
+        # forward pass of TabNet partial models
         with torch.no_grad():
             encoder_output_steps, _ = self.partial_encoder(input_intermediate_logits)
         
@@ -473,7 +542,13 @@ class TabNetServer():
         return encoded_representation.cpu().numpy()
 
 
-    def forward_pass_pretraining(self) -> torch.Tensor:
+    def forward_pass_pretraining(
+        self, 
+        clients_offline: list,
+        simulate_client_failure: bool, 
+        last_batch: bool,
+        batch_idx: int
+    ) -> torch.Tensor:
         """
         This function performs a forward pass of the TabNet encoder and decoder
         which are used during pretrianing
@@ -490,16 +565,71 @@ class TabNetServer():
 
         # get output from local encoders
         for client_rref in self.client_rrefs:
+            if self.handle_client_failures_pretraining:
+                if client_rref in clients_offline and simulate_client_failure:
+                    # skipping corresponding batch of the skipped client to keep batch size consistent
+                    client_rref.rpc_sync().get_batch_data()
+                    continue
             future_object_encoder_dict[client_rref] = client_rref.rpc_async().forward_pass_encoder(is_pretraining=True)
 
-        for client_rref in self.client_rrefs:
+        for client_idx, client_rref in enumerate(self.client_rrefs):
+            if self.handle_client_failures_pretraining:
+                if client_rref in clients_offline and simulate_client_failure:
+                    if self.use_caching_method:
+                        intermediate_results_failed_client = self.client_to_tensor_batches_pretrain[client_rref][batch_idx].detach().clone()
+                    else:
+                        if last_batch:
+                            last_batch_size = self.y_train_len % self.batch_size
+                            intermediate_results_failed_client = torch.zeros(
+                                (last_batch_size, self.output_encoder_clients_dims_list[client_idx]),
+                                requires_grad=True
+                            )
+                        else:
+                            intermediate_results_failed_client = torch.zeros(
+                                (self.batch_size, self.output_encoder_clients_dims_list[client_idx]),
+                                requires_grad=True
+                            )
+
+                    intermediate_results_encoder_dict[client_rref] = intermediate_results_failed_client
+
+                    if self.use_caching_method:
+                        prior_failed_client = self.client_to_tensor_masks_pretrain[client_rref][batch_idx].detach().clone()
+                    else:
+                        if last_batch:
+                            last_batch_size = self.y_train_len % self.batch_size
+                            prior_failed_client = torch.zeros(
+                                (last_batch_size, self.output_encoder_clients_dims_list[client_idx]),
+                                requires_grad=True
+                            )
+                        else:
+                            prior_failed_client = torch.zeros(
+                                (self.batch_size, self.output_encoder_clients_dims_list[client_idx]),
+                                requires_grad=True
+                            )
+                    results_prior_encoder_dict[client_rref] = prior_failed_client
+
+                    continue
+
             # wait for each future object to be ready
             client_inter_output_logits, prior = future_object_encoder_dict[client_rref].wait()
 
             # append the intermediate value to the list
             intermediate_results_encoder_dict[client_rref] = client_inter_output_logits
             results_prior_encoder_dict[client_rref] = prior
-            
+
+            # cache prior and intermediate results of current client
+            if self.use_caching_method and self.handle_client_failures_pretraining:
+                # replace existing value with new batch values
+                if 0 <= batch_idx < len(self.client_to_tensor_batches_pretrain[client_rref]):
+                    self.client_to_tensor_batches_pretrain[client_rref][batch_idx] = client_inter_output_logits.detach().clone() 
+                else: # insert new batch values since they don't exist at batch_idx yet
+                    self.client_to_tensor_batches_pretrain[client_rref].insert(batch_idx, client_inter_output_logits.detach().clone())
+                
+                if 0 <= batch_idx < len(self.client_to_tensor_masks_pretrain[client_rref]):
+                    self.client_to_tensor_masks_pretrain[client_rref][batch_idx] = prior.detach().clone() 
+                else: 
+                    self.client_to_tensor_masks_pretrain[client_rref].insert(batch_idx, prior.detach().clone())
+
         # concatenate the intermediate tensor values from all clients by column, 
         # e.g. cat([[1,2,3]], [[4,5,6]]) -> [[1,2,3,4,5,6]]
         input_intermediate_logits = torch.cat(list(intermediate_results_encoder_dict.values()), dim = 1).to(self.device)
@@ -517,7 +647,9 @@ class TabNetServer():
 
         # asynchronously forward pass decoder of all clients
         for client_rref, client_tensor in zip(self.client_rrefs, splitted_tensors):
-        # for client_rref in self.client_rrefs:
+            if self.handle_client_failures_pretraining:
+                if client_rref in clients_offline and simulate_client_failure:
+                    continue
             if self.use_cuda:
                 client_tensor = client_tensor.cpu()
             decoder_loss_future = client_rref.rpc_async().forward_pass_decoder(client_tensor)
@@ -526,6 +658,9 @@ class TabNetServer():
         # aggregate loss values from clients 
         # wait for each future object to be ready
         for client_rref in self.client_rrefs:
+            if self.handle_client_failures_pretraining:
+                if client_rref in clients_offline and simulate_client_failure:
+                    continue
             decoder_loss_future = decoder_res_client_rref_to_future_obj[client_rref]
             total_loss_clients += decoder_loss_future.wait()
         
@@ -536,7 +671,8 @@ class TabNetServer():
         This function evaluates the model on the test data
         """
         hyperparams_log: Dict[str, Any] = {
-            "epochs": self.epochs,
+            "pretrain_epochs": self.pretrain_epochs,
+            "finetune_epochs": self.finetune_epochs,
             "batch_size": self.batch_size,
             "seed": self.seed,
             **self.tabnet_hyperparams,
@@ -544,6 +680,9 @@ class TabNetServer():
             **self.optimizer_params,
             "patience_pretraining": self.patience_pretraining,
             "patience_finetuning": self.patience_finetuning,
+            "epoch_failure_probability": self.epoch_failure_probability,
+            "use_caching_client_failure_method": self.use_caching_method,
+            "mini_batch_client_failure": self.mini_batch_client_failure
         }
 
         evaluate_multiple_predictors(
@@ -559,6 +698,8 @@ class TabNetServer():
 
     def fit_predictor(self):
         logger.info(f"{self.y_train=}")
+
+        curr_clients_offline = []
 
         X_train_latent = self.forward_pass_encoded_data(
             fetch_encoded_test_data=False,
@@ -592,7 +733,7 @@ class TabNetServer():
                 X_total_dataset,
                 y_total_dataset,
                 test_size=(self.test_ratio + self.valid_ratio),
-                random_state=self.seed,
+                random_state=42,
                 shuffle=True,
             )
         else:
@@ -600,7 +741,7 @@ class TabNetServer():
                 X_total_dataset,
                 y_total_dataset,
                 test_size=(self.test_ratio + self.valid_ratio),
-                random_state=self.seed,
+                random_state=42,
                 shuffle=True,
                 stratify=y_total_dataset,
             )
@@ -639,18 +780,12 @@ class TabNetServer():
 
         # list to keep track of losses per epoch
         list_of_train_losses_per_epoch = []
-
         # list to keep track of training time per epoch
         list_of_training_times_per_epoch = []
-
+        # list of how many times clients were offline during training
+        dict_count_offline_clients = {}
         # list of valid loss per epoch
         list_of_valid_losses_per_epoch = []
-
-        # list of valid roc-auc per epoch
-        list_of_valid_losses_per_epoch_roc_auc = []
-
-        # list of valid accuracy per peoch
-        list_of_valid_losses_per_epoch_accuracy = []
 
         # reset iterloaders so that we start from the beginning of the dataset
         self.reset_iterloader()
@@ -658,13 +793,59 @@ class TabNetServer():
             client_rref.rpc_sync().reset_iterloader()
 
         training_start_time = time.time()
-        for epoch in range(1, self.epochs+1):
+        for epoch in range(1, self.finetune_epochs+1):
             logger.info(f"Epoch: {epoch}")
+
+            if not self.mini_batch_client_failure:
+                curr_clients_offline = []
+                if self.handle_client_failures_finetuning:
+                    # loop through each client and decide whether each of them should go
+                    # offline or not
+                    # DO NOT SIMULATE CLIENT FAILURES FROM THE FIRST EPOCH
+                    # WE NEED TO POPULATE THE CACHED STORAGE OF BATCHES SO WE
+                    # CAN USE IT. ASSUME NONE OF CLIENT WILL GO OFFLINE AT THE START
+                    if epoch != 1:
+                        for curr_client in self.client_rrefs:
+                            random_sampled_num = self.rng_failure.random()
+                            if random_sampled_num < self.epoch_failure_probability:
+                                curr_clients_offline.append(curr_client)
+                        str_of_clients_offline = "(" + ", ".join(
+                            [str(client_rref.owner().id) for client_rref in curr_clients_offline]
+                        ) + ")"
+                        if dict_count_offline_clients.get(str_of_clients_offline, None) is None: 
+                            dict_count_offline_clients[str_of_clients_offline] = 0
+                        else:
+                            dict_count_offline_clients[str_of_clients_offline] += 1
+                        print(f"{str_of_clients_offline=}")
 
             losses_sum = 0
 
             epoch_start_time = time.perf_counter()
             for batch_amount in range(1, num_batches+1):
+
+                # simulating client failure here (mini-batch level)
+                if self.mini_batch_client_failure:
+                    curr_clients_offline = []
+                    if self.handle_client_failures_finetuning:
+                        # loop through each client and decide whether each of them should go
+                        # offline or not
+                        # DO NOT SIMULATE CLIENT FAILURES FROM THE FIRST EPOCH
+                        # WE NEED TO POPULATE THE CACHED STORAGE OF BATCHES SO WE
+                        # CAN REUSE IT. ASSUME NONE OF CLIENT WILL GO OFFLINE AT THE START
+                        if epoch != 1:
+                            for curr_client in self.client_rrefs:
+                                random_sampled_num = self.rng_failure.random()
+                                if random_sampled_num < self.epoch_failure_probability:
+                                    curr_clients_offline.append(curr_client)
+                            str_of_clients_offline = "(" + ", ".join(
+                                [str(client_rref.owner().id) for client_rref in curr_clients_offline]
+                            ) + ")"
+                            if dict_count_offline_clients.get(str_of_clients_offline, None) is None: 
+                                dict_count_offline_clients[str_of_clients_offline] = 0
+                            else:
+                                dict_count_offline_clients[str_of_clients_offline] += 1
+                            print(f"{str_of_clients_offline=}")
+
                 with dist.autograd.context() as tabnet_finetuning_context:
                     y_target = self.get_batch_from_dataloader()
                     y_target = y_target.to(self.device)
@@ -673,14 +854,36 @@ class TabNetServer():
                     if self.task_type == "continuous":
                         y_target = y_target.float()
 
+                    # indicate whether this is the last batch of the epoch
+                    last_batch = batch_amount == num_batches
+
                     # forward pass of clients and server for pretraining
                     # y_pred should be a tensor of shape (batch_size, 2)
                     # in binary case
-                    logits, M_loss = self.forward_pass_finetuning()
-                    
+                    if self.handle_client_failures_finetuning:
+                        logits, M_loss = self.forward_pass_finetuning(
+                            curr_clients_offline,
+                            True, 
+                            last_batch,
+                            batch_idx=batch_amount-1
+                        )
+                    else:
+                        logits, M_loss = self.forward_pass_finetuning(
+                            [],
+                            False, 
+                            last_batch,
+                            batch_idx=batch_amount-1
+                        )
+
                     # calculate the loss of the forawrd pass
                     # in case of regression, logits represents one value for each sample
-                    loss = self.criteron(logits, y_target)
+                    # calculate the loss of the forawrd pass
+                    if self.task_type == "continuous":
+                        # Convert logits to probabilities using softmax
+                        probs = torch.softmax(logits, dim=1)
+                        loss = self.criteron(probs, y_target)
+                    else:
+                        loss = self.criteron(logits, y_target)
 
                     # Add the overall sparsity loss
                     loss = loss - self.lambda_sparse * M_loss
@@ -704,15 +907,20 @@ class TabNetServer():
             list_of_train_losses_per_epoch.append(losses_sum / num_batches)
 
             # evaluate the model on the validation data 
-            valid_loss, stop_training, best_val_loss, current_patience, valid_acc, valid_roc_auc = self.validate_model(
-                is_pretraining=False,
-                best_val_loss=best_val_loss,
-                current_patience=current_patience,
-            )
+            if self.handle_client_failures_finetuning:
+                valid_loss, stop_training, best_val_loss, current_patience = self.validate_model(
+                    is_pretraining=False,
+                    best_val_loss=best_val_loss,
+                    current_patience=current_patience,
+                )
+            else:
+                valid_loss, stop_training, best_val_loss, current_patience = self.validate_model(
+                    is_pretraining=False,
+                    best_val_loss=best_val_loss,
+                    current_patience=current_patience,
+                )
 
             list_of_valid_losses_per_epoch.append(valid_loss)
-            list_of_valid_losses_per_epoch_roc_auc.append(valid_roc_auc)
-            list_of_valid_losses_per_epoch_accuracy.append(valid_acc)
 
             logger.info(f"{best_val_loss=}")
             logger.info(f"{current_patience=}")
@@ -720,13 +928,10 @@ class TabNetServer():
             assert self.partial_encoder.training == True, "partial_encoder is not in training mode after validation"
             assert self.final_fc_mapping.training == True, "partial_decoder is not in training mode after validation"
 
-            if stop_training:
-                break
-
         training_end_time = time.time()
         logger.info(f"Finetuning done in: {training_end_time - training_start_time}")
 
-        return list_of_train_losses_per_epoch, list_of_valid_losses_per_epoch, list_of_training_times_per_epoch, list_of_valid_losses_per_epoch_accuracy, list_of_valid_losses_per_epoch_roc_auc
+        return list_of_train_losses_per_epoch, list_of_valid_losses_per_epoch, list_of_training_times_per_epoch, dict_count_offline_clients
     
     def forward_pass_valid_data_finetuning(self):
         """
@@ -832,9 +1037,6 @@ class TabNetServer():
         stop_training = False
         is_maximize = False
 
-        valid_loss_accuracy = -1
-        valid_loss_roc_auc = -1
-
         with torch.no_grad():
             if is_pretraining:
                 valid_loss = self.forward_pass_valid_data_pretraining()
@@ -852,23 +1054,21 @@ class TabNetServer():
                 else:
                     is_maximize = True
                     preds = np.argmax(softmaxed_logits, axis=1)
-                    precision, recall, f1, _ = precision_recall_fscore_support(
-                        y_true=self.y_valid, 
-                        y_pred=preds, 
-                        average='weighted'
-                    )
-                    valid_loss = f1
-
                     if self.unique_class_labels_count == 2:
-                        valid_loss_roc_auc = roc_auc_score(self.y_valid, softmaxed_logits[:, 1], average="weighted", multi_class='ovr')
+                        precision, recall, f1, _ = precision_recall_fscore_support(
+                            y_true=self.y_valid, 
+                            y_pred=preds, 
+                            average='weighted'
+                        )
+                        valid_loss = f1
                     else:
-                        valid_loss_roc_auc = roc_auc_score(self.y_valid, softmaxed_logits, average="weighted", multi_class='ovr')
-                    
-                    valid_loss_accuracy = accuracy_score(self.y_valid, preds)
-
+                        precision, recall, f1, _ = precision_recall_fscore_support(
+                            y_true=self.y_valid, 
+                            y_pred=preds, 
+                            average='weighted'
+                        )
+                        valid_loss = f1
                     logger.info(f"FINETUNING VALID F1_SCORE: {valid_loss}")
-                    logger.info(f"FINETUNING VALID ROC-AUC: {valid_loss_roc_auc}")
-                    logger.info(f"FINETUNING VALID ACCURACY: {valid_loss_accuracy}")
 
         loss_change = valid_loss - best_val_loss
         max_improved = is_maximize and loss_change > 0.0
@@ -897,7 +1097,7 @@ class TabNetServer():
             self.partial_encoder.train()
             self.final_fc_mapping.train()
 
-        return valid_loss, stop_training, best_val_loss, current_patience, valid_loss_accuracy, valid_loss_roc_auc
+        return valid_loss, stop_training, best_val_loss, current_patience
 
     def fit_pretraining(self):
         """
@@ -924,6 +1124,9 @@ class TabNetServer():
         # list of valid loses per epoch
         list_of_valid_losses_per_epoch = []
 
+        # dict of how many times clients were offline during training
+        dict_count_offline_clients = {}
+
         # reset iterloaders so that we start from the beginning of the dataset
         # as we will start a new epoch so start from the first batch
         self.reset_iterloader()
@@ -931,23 +1134,88 @@ class TabNetServer():
             client_rref.rpc_sync().reset_iterloader()
 
         training_start_time = time.time()
-        for epoch in range(1, self.epochs+1):
+        for epoch in range(1, self.pretrain_epochs+1):
             logger.info(f"Epoch: {epoch}")
 
             losses_sum = 0
-            
+
+            if not self.mini_batch_client_failure:
+                curr_clients_offline = []
+                if self.handle_client_failures_pretraining:
+                    # loop through each client and decide whether each of them should go
+                    # offline or not
+                    # DO NOT SIMULATE CLIENT FAILURES FROM THE FIRST EPOCH
+                    # WE NEED TO POPULATE THE CACHED STORAGE OF BATCHES SO WE
+                    # CAN USE IT. ASSUME NONE OF CLIENT WILL GO OFFLINE AT THE START
+                    if epoch != 1:
+                        for curr_client in self.client_rrefs:
+                            random_sampled_num = self.rng_failure.random()
+                            if random_sampled_num < self.epoch_failure_probability:
+                                curr_clients_offline.append(curr_client)
+                        str_of_clients_offline = "(" + ", ".join(
+                            [str(client_rref.owner().id) for client_rref in curr_clients_offline]
+                        ) + ")"
+                        if dict_count_offline_clients.get(str_of_clients_offline, None) is None: 
+                            dict_count_offline_clients[str_of_clients_offline] = 0
+                        else:
+                            dict_count_offline_clients[str_of_clients_offline] += 1
+                        print(f"{str_of_clients_offline=}")
+                
             epoch_start_time = time.perf_counter()
             for batch_amount in range(1, num_batches+1):
-                with dist.autograd.context() as tabnet_context:
+                # simulating client failure here (mini-batch level)
+                if self.mini_batch_client_failure:
+                    curr_clients_offline = []
+                    if self.handle_client_failures_pretraining:
+                        # loop through each client and decide whether each of them should go
+                        # offline or not
+                        # DO NOT SIMULATE CLIENT FAILURES FROM THE FIRST EPOCH
+                        # WE NEED TO POPULATE THE CACHED STORAGE OF BATCHES SO WE
+                        # CAN USE IT. ASSUME NONE OF CLIENT WILL GO OFFLINE AT THE START
+                        if epoch != 1:
+                            for curr_client in self.client_rrefs:
+                                random_sampled_num = self.rng_failure.random()
+                                if random_sampled_num < self.epoch_failure_probability:
+                                    curr_clients_offline.append(curr_client)
+                            str_of_clients_offline = "(" + ", ".join(
+                                [str(client_rref.owner().id) for client_rref in curr_clients_offline]
+                            ) + ")"
+                            if dict_count_offline_clients.get(str_of_clients_offline, None) is None: 
+                                dict_count_offline_clients[str_of_clients_offline] = 0
+                            else:
+                                dict_count_offline_clients[str_of_clients_offline] += 1
+                            print(f"{str_of_clients_offline=}")
+
+                with dist.autograd.context() as pretrain_tabnet_context:
+                    # indicate whether this is the last batch of the epoch
+                    last_batch = batch_amount == num_batches
 
                     # forward pass of clients and server for pretraining
-                    loss = self.forward_pass_pretraining()
+                    if self.handle_client_failures_pretraining:
+                        loss = self.forward_pass_pretraining(
+                            curr_clients_offline, 
+                            True,
+                            last_batch,
+                            batch_idx=batch_amount
+                        )
+                    else:
+                        loss = self.forward_pass_pretraining(
+                            [], 
+                            False,
+                            last_batch,
+                            batch_idx=batch_amount
+                        )
+
+                    # if all clients are chosen to be offline, then skip and continue to the next batch
+                    if len(curr_clients_offline) == len(self.client_rrefs):
+                        continue
                     
-                    dist.autograd.backward(tabnet_context, [loss])
-                    
-                    self.tabnet_pretraining_opt.step(tabnet_context)
+                    dist.autograd.backward(pretrain_tabnet_context, [loss])
+
+                    self.tabnet_pretraining_opt.step(pretrain_tabnet_context)
                     
                     losses_sum += loss.item()
+                    
             epoch_end_time = time.perf_counter()
             logger.info(f"Epoch {epoch} training time: {epoch_end_time - epoch_start_time}")
             list_of_training_times_per_epoch.append(epoch_end_time - epoch_start_time)
@@ -958,11 +1226,18 @@ class TabNetServer():
             list_of_train_losses_per_epoch.append(losses_sum / num_batches)  
 
             # evaluate the model on the validation data 
-            valid_loss, stop_training, best_val_loss, current_patience, _, _ = self.validate_model(
-                is_pretraining=True,
-                best_val_loss=best_val_loss,
-                current_patience=current_patience,
-            )
+            if self.handle_client_failures_pretraining:
+                valid_loss, stop_training, best_val_loss, current_patience = self.validate_model(
+                    is_pretraining=True,
+                    best_val_loss=best_val_loss,
+                    current_patience=current_patience,
+                )
+            else:
+                valid_loss, stop_training, best_val_loss, current_patience = self.validate_model(
+                    is_pretraining=True,
+                    best_val_loss=best_val_loss,
+                    current_patience=current_patience,
+                )
 
             list_of_valid_losses_per_epoch.append(valid_loss)
 
@@ -974,13 +1249,10 @@ class TabNetServer():
 
             logger.info(f"PRETRAINING VALIDATION UNSUP_LOSS: {valid_loss}")
 
-            if stop_training:
-                break
-
         training_end_time = time.time()
         logger.info(f"Pretraining done in: {training_end_time - training_start_time}")
 
-        return list_of_train_losses_per_epoch, list_of_valid_losses_per_epoch, list_of_training_times_per_epoch, 
+        return list_of_train_losses_per_epoch, list_of_valid_losses_per_epoch, list_of_training_times_per_epoch, dict_count_offline_clients
 
 
 def run(
@@ -1080,12 +1352,18 @@ def run(
                 epochs=epochs,
                 use_cuda=use_cuda,
             )
-            pretraining_train_losses, pretraining_valid_losses, epoch_time_values_pretraining = \
+            pretraining_train_losses, pretraining_valid_losses, epoch_time_values_pretraining, dict_counts_offline_clients_pretraining = \
                 server.fit_pretraining()
-            finetuning_train_losses, finetuning_valid_losses, epoch_time_values_finetuning, list_of_valid_losses_per_epoch_accuracy_finetune, list_of_valid_losses_per_epoch_roc_auc_finetune = \
+            finetuning_train_losses, finetuning_valid_losses, epoch_time_values_finetuning, dict_counts_offline_clients_finetuning = \
                 server.fit_finetuning()
             X_train_latent, y_train = server.fit_predictor()
             server.evaluate()
+
+            # plot histogram offline client counts
+            histogram_client_offline_counts(dict_counts_offline_clients_pretraining, "pretraining")
+
+            # plot histogram offline client counts
+            histogram_client_offline_counts(dict_counts_offline_clients_finetuning, "finetuning")
 
             # save epoch time values of pretraining
             save_epoch_times_and_plot(
@@ -1099,27 +1377,125 @@ def run(
                 "finetuning",
             )
 
-            save_train_and_valid_metrics(
-                list_train_losses=finetuning_train_losses,
-                list_valid_f1_scores=finetuning_valid_losses,
-                list_valid_accuracy_scores=list_of_valid_losses_per_epoch_accuracy_finetune,
-                list_valid_roc_auc_scores=list_of_valid_losses_per_epoch_roc_auc_finetune,
-                training_phase="finetuning",
-                title="Valid metric scores per epoch during finetuning TabVFL (weighted f1-score, weighted roc_auc, accuracy)"
+            # for testing whether the training loss is decreasing and converging to a certain value 
+            save_losses_plot(
+                finetuning_train_losses, 
+                finetuning_valid_losses, 
+                "finetuning", 
+                "Train and Valid losses during finetuning TabNet VFL"
             )
 
-            save_train_and_valid_metrics(
-                list_train_losses=pretraining_train_losses,
-                list_valid_f1_scores=pretraining_valid_losses,
-                list_valid_accuracy_scores=[],
-                list_valid_roc_auc_scores=[],
-                training_phase="pretraining",
-                title="Valid metric scores per epoch during pretraining TabVFL (weighted f1-score, weighted roc_auc, accuracy)"
+            # for testing whether the training loss is decreasing and converging to a certain value 
+            save_losses_plot(
+                pretraining_train_losses, 
+                pretraining_valid_losses, 
+                "pretraining", 
+                "Train and Valid Losses during pretraining TabNet VFL"
             )
             
+            # plot tsne of the train latent data
+            # plot_tsne_of_latent(X_train_latent, y_train, "TabNet VFL", SCRIPT_DIR)
+        
         elif rank != 0:
             raise ValueError("Only rank 0 is allowed to run the server")
     except Exception as e:
         logger.exception(e)
     finally:
         rpc.shutdown()
+
+def run_from_cmd(
+    rank,
+    world_size, 
+    ip, 
+    port, 
+    dataset, 
+    epochs, 
+    use_cuda, 
+    batch_size,
+):
+    try:
+        # set environment information
+        os.environ["MASTER_ADDR"] = ip
+        os.environ["MASTER_PORT"] = str(port)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        os.environ["RANK"] = str(rank)
+
+        logger.info(f"number of epochs before initialization: {epochs}")
+        logger.info(f"world size: {world_size}")
+        logger.info(f"IP: tcp://{ip}:{port}")
+        logger.info(f"Rank: {rank}")
+
+        if rank == 0:  # this is run only on the server side
+            rpc.init_rpc(
+                "server",
+                rank=rank,
+                world_size=world_size,
+                backend=rpc.BackendType.PROCESS_GROUP,
+                rpc_backend_options=rpc.ProcessGroupRpcBackendOptions(
+                    num_send_recv_threads=8, rpc_timeout=120, init_method=f"tcp://{ip}:{port}"
+                ),
+            )
+
+            clients = []
+            for worker in range(world_size-1):
+                clients.append(
+                    rpc.remote(
+                        "client"+str(worker+1), 
+                        TabNetClient, 
+                        kwargs=dict(
+                            dataset=dataset, 
+                            epochs=epochs, 
+                            use_cuda=use_cuda, 
+                            batch_size=batch_size,
+                            client_id=worker + 1
+                        )
+                    )
+                )
+                logger.info(f"register remote client-{str(worker+1)} - {clients[worker]=}")
+
+            
+            server = TabNetServer(
+                client_rrefs=clients,
+                dataset=dataset,
+                epochs=epochs,
+                use_cuda=use_cuda, 
+                batch_size=batch_size,
+            )
+            server.fit_pretraining()
+            server.fit_finetuning()
+            server.evaluate()
+
+        elif rank != 0:
+            raise ValueError("Only rank 0 is allowed to run the server")
+    except Exception as e:
+        logger.exception(e)
+    finally:
+        rpc.shutdown()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rank", type=int, default=0)
+    parser.add_argument("--ip", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7788)
+    parser.add_argument(
+        "--dataset", type=str, default="Adult"
+    )
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--world_size", type=int, default=2)
+    parser.add_argument('--use_cuda',  type=bool, default=False)
+    parser.add_argument("--batch_size", type=int, default=4096)
+    args = parser.parse_args()
+
+    if args.rank is not None:
+        # run with a specified rank (need to start up another process with the opposite rank elsewhere)
+        run_from_cmd(
+            rank=args.rank,
+            world_size=args.world_size,
+            ip=args.ip,
+            port=args.port,
+            dataset=args.dataset,
+            epochs=args.epochs,
+            use_cuda=args.use_cuda,
+            batch_size=args.batch_size,
+        )

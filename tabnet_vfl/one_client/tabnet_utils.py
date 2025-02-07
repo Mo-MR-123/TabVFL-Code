@@ -16,6 +16,7 @@ def initialize_non_glu(module: Module, input_dim: int, output_dim: int) -> None:
     """
     gain_value = np.sqrt((input_dim + output_dim) / np.sqrt(4 * input_dim))
     torch.nn.init.xavier_normal_(module.weight, gain=gain_value)
+    # torch.nn.init.zeros_(module.bias)
     return
 
 def check_list_groups(list_groups, input_dim):

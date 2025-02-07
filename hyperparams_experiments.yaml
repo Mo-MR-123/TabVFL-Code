@@ -64,7 +64,7 @@ local_tabnets:
     n_d: [1, 1, 1, 1, 1]
     n_a: 2
     momentum: 0.9
-    n_steps: 4
+    n_steps: 4 #[12,12,12,12,12]
     gamma: 1.5
     epsilon: 1.0e-9
     n_independent: 1

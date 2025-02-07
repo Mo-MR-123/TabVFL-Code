@@ -7,9 +7,6 @@ from pathlib import Path
 from torch.nn import Linear
 import torch.distributed.rpc as rpc
 from torch.utils.data import DataLoader
-# from torch.nn import functional as F
-# from sklearn.model_selection import train_test_split
-import numpy as np
 import os
 from torch.nn import Linear, Module
 import warnings
@@ -20,47 +17,14 @@ from pytorch_tabnet.tab_network import TabNetEncoder
 from tabnet_vfl_local_encoder.one_client.tabnet_client_model import RandomObfuscator, UnsupervisedLoss
 from tabnet_vfl_local_encoder.one_client.tabnet_utils import create_group_matrix, initialize_non_glu
 
-random_seed = 42
-
-# Set the random seed for NumPy
-np.random.seed(random_seed)
-
-# Set the random seed for PyTorch CPU operations
-torch.manual_seed(random_seed)
-
-# Set the random seed for PyTorch GPU operations (if available)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(random_seed)
-
 # Global constants
-# SEED = 42
 SCRIPT_DIR = Path(__file__).resolve().parent
-
-# np.random.seed(SEED) # IMPORTANT FOR THE SHUFFLE OF THE DATA
-# Set a seed for PyTorch
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
-# torch.manual_seed(SEED)
-# torch.cuda.manual_seed_all(SEED)
-
-# def _call_method(method, rref, *args, **kwargs):
-#     """helper for _remote_method()"""
-#     return method(rref.local_value(), *args, **kwargs)
-    
-# def _remote_method(method, rref, *args, **kwargs):
-#     """
-#     executes method(*args, **kwargs) on the from the machine that owns rref
-#     very similar to rref.remote().method(*args, **kwargs), but method() doesn't have to be in the remote scope
-#     """
-#     args = [method, rref] + list(args)
-#     return rpc.rpc_sync(rref.owner(), _call_method, args=args, kwargs=kwargs)
 
 def param_rrefs(module):
     """grabs remote references to the parameters of a module"""
     param_rrefs = []
     for param in module.parameters():
         param_rrefs.append(rpc.RRef(param))
-    # print(param_rrefs)
     return param_rrefs
 
 
@@ -73,7 +37,6 @@ class LocalEncoder(Module):
         pretraining_ratio: float,
     ):
         super(LocalEncoder, self).__init__()
-        # self.is_training = True
 
         self.encoder = TabNetEncoder(
             input_dim=input_dim,
@@ -115,7 +78,6 @@ class TabNetClientEncoder():
         batch_size: int,
         cols_info_dict: dict,
         encoder_params: dict,
-        # valid_ratio: float,
         test_ratio: float,
         seed: int,
         pretraining_ratio: float,
@@ -134,7 +96,6 @@ class TabNetClientEncoder():
         self.X_train = X_train_df
         self.X_valid = X_valid_df
         self.X_test = X_test_df
-        # self.valid_ratio = valid_ratio
         self.test_ratio = test_ratio
         self.column_number = self.X_train.shape[1]
         self.column_names = list(self.X_train.columns)
@@ -201,7 +162,8 @@ class TabNetClientEncoder():
         torch.manual_seed(self.seed)
         self.local_decoder = Linear(self.decoder_input_nd_dim, self.input_dim, bias=False).to(self.device)
         initialize_non_glu(self.local_decoder, self.decoder_input_nd_dim, self.input_dim)
-        
+
+
     def init_encoder(self):
         torch.manual_seed(self.seed)
         self.local_encoder = LocalEncoder(
@@ -267,8 +229,7 @@ class TabNetClientEncoder():
                 if self.use_cuda:
                     # converting tensors in steps_out list to cpu for transmission
                     for tensor_idx in range(len(steps_out)):
-                        steps_out[tensor_idx] = steps_out[tensor_idx].cpu()
-                    
+                        steps_out[tensor_idx] = steps_out[tensor_idx].cpu()                    
                     for tensor in steps_out:
                         assert tensor.device.type == "cpu"
                     return steps_out
@@ -336,9 +297,10 @@ class TabNetClientEncoder():
         self.local_encoder.train()
         
         assert self.local_encoder.training == True
-
+        
         curr_batch_of_data = self.get_batch_data()
 
+        # convert numbers to float of the current batch of data
         curr_batch_of_data = curr_batch_of_data.to(self.device).float()
         self.curr_batch_of_data = curr_batch_of_data
 
@@ -379,10 +341,12 @@ class TabNetClientEncoder():
         
         server_partial_decoder_logits (torch.Tensor): logits of the partial decoder part in the server with shape (batch_size, decoder_input_nd_dim)
         """
+
         assert self.local_encoder.training == True
         assert self.local_decoder.training == True
         assert self.curr_embedded_x is not None
         assert self.curr_batch_of_data is not None
+        # assert self.curr_x_masked is not None
         assert self.steps_out != []
 
         reconstructed_output = self.local_decoder(server_partial_decoder_logits.to(self.device).float())
@@ -468,3 +432,68 @@ def run(
         traceback.print_exc()
     finally:
         rpc.shutdown()
+
+def run_from_cmd(
+    rank, 
+    world_size, 
+    ip, 
+    port, 
+    dataset, 
+    epochs, 
+    use_cuda, 
+    batch_size,
+):
+    try:
+        if rank == 0:
+            raise ValueError("rank 0 is reserved for the server")
+            
+        # set environment information
+        os.environ["MASTER_ADDR"] = ip
+        os.environ["MASTER_PORT"] = str(port)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        os.environ["RANK"] = str(rank)
+        print("number of epochs before initialization: ", epochs)
+        print("world size: ", world_size, f"tcp://{ip}:{port}")
+        
+        rpc.init_rpc(
+            "client"+str(rank),
+            rank=rank,
+            world_size=world_size,
+            backend=rpc.BackendType.PROCESS_GROUP,
+            rpc_backend_options=rpc.ProcessGroupRpcBackendOptions(
+                num_send_recv_threads=4, rpc_timeout=120, init_method=f"tcp://{ip}:{port}"
+            ),
+        )
+        print("client"+str(rank)+" is joining")
+    except Exception as e:
+        print(e)
+        traceback.print_exc()
+    finally:
+        rpc.shutdown()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rank", type=int, default=0)
+    parser.add_argument("--ip", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7788)
+    parser.add_argument(
+        "--dataset", type=str, default="mnist"
+    )
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--world_size", type=int, default=2)
+    parser.add_argument('--use_cuda',  type=str, default=False)
+    parser.add_argument("--batch_size", type=int, default=500)
+    args = parser.parse_args()
+
+    if args.rank is not None:
+        # run with a specified rank (need to start up another process with the opposite rank elsewhere)
+        run_from_cmd(
+            rank=args.rank,
+            world_size=args.world_size,
+            ip=args.ip,
+            port=args.port,
+            dataset=args.dataset,
+            epochs=args.epochs,
+            use_cuda=args.use_cuda,
+            batch_size=args.batch_size,
+        )

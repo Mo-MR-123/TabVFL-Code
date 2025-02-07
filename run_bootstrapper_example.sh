@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python bootstrapper.py \
+python3 bootstrapper.py \
     # Path to the dataset to use for the experiment
     --datasets_folder_path "./datasets" \
     # Path to the config file corresponding to the dataset

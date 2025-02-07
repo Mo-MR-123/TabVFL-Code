@@ -128,7 +128,6 @@ class TabNetNoEmbeddingsNoFinalLayer(torch.nn.Module):
         res = 0
         steps_output, M_loss = self.encoder(x)
         res = torch.sum(torch.stack(steps_output, dim=0), dim=0)
-
         return res, M_loss
 
 class TabNet(torch.nn.Module):

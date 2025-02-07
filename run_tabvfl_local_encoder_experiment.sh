@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python bootstrapper.py \
+python3 bootstrapper.py \
     --datasets_folder_path "./datasets" \
     --config_path "./config_experiments_covertype.yaml" \
     --hyperparams_path "./hyperparams_experiments.yaml" \
