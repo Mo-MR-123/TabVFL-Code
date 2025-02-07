@@ -180,8 +180,8 @@ class TabNetServer():
         self.eval_results_path = SCRIPT_DIR / eval_out
         
         # settings client failure simulation
-        self.handle_client_failures_pretraining = False
-        self.handle_client_failures_finetuning = False
+        self.handle_client_failures_pretraining = True
+        self.handle_client_failures_finetuning = True
         self.rng_failure = np.random.default_rng(self.seed)  # Create a random number generator with the specified seed
         self.epoch_failure_probability = epoch_failure_probability # probability of a client being offline in a given epoch
         self.use_caching_method = True
