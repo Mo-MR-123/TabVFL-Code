@@ -1,0 +1,146 @@
+version: 2
+
+seed: 42
+
+dataset: "rice_msc_preprocessed"
+column_label_name: "CLASS"
+mixed_columns: []
+integer_columns:
+  - "AREA"
+  - "PERIMETER"
+  - "MAJOR_AXIS"
+  - "MINOR_AXIS"
+  - "ECCENTRICITY"
+  - "EQDIASQ"
+  - "SOLIDITY"
+  - "CONVEX_AREA"
+  - "EXTENT"
+  - "ASPECT_RATIO"
+  - "ROUNDNESS"
+  - "COMPACTNESS"
+  - "SHAPEFACTOR_1"
+  - "SHAPEFACTOR_2"
+  - "SHAPEFACTOR_3"
+  - "SHAPEFACTOR_4"
+  - "meanRR"
+  - "meanRG"
+  - "meanRB"
+  - "StdDevRR"
+  - "StdDevRG"
+  - "StdDevRB"
+  - "skewRR"
+  - "skewRG"
+  - "skewRB"
+  - "kurtosisRR"
+  - "kurtosisRG"
+  - "kurtosisRB"
+  - "entropyRR"
+  - "entropyRG"
+  - "entropyRB"
+  - "meanH"
+  - "meanS"
+  - "meanV"
+  - "StdDevH"
+  - "StdDevS"
+  - "StdDevV"
+  - "skewH"
+  - "skewS"
+  - "skewV"
+  - "kurtosisH"
+  - "kurtosisS"
+  - "kurtosisV"
+  - "entropyH"
+  - "entropyS"
+  - "entropyV"
+  - "meanL"
+  - "meanA"
+  - "meanB"
+  - "StdDevL"
+  - "StdDevA"
+  - "StdDevB"
+  - "skewL"
+  - "skewA"
+  - "skewB"
+  - "kurtosisL"
+  - "kurtosisA"
+  - "kurtosisB"
+  - "entropyL"
+  - "entropyA"
+  - "entropyB"
+  - "meanY"
+  - "meanCb"
+  - "meanCr"
+  - "StdDevY"
+  - "StdDevCb"
+  - "StdDevCr"
+  - "skewY"
+  - "skewCb"
+  - "skewCr"
+  - "kurtosisY"
+  - "kurtosisCb"
+  - "kurtosisCr"
+  - "entropyY"
+  - "entropyCb"
+  - "entropyCr"
+  - "meanXX"
+  - "meanYY"
+  - "meanZZ"
+  - "StdDevXX"
+  - "StdDevYY"
+  - "StdDevZZ"
+  - "skewXX"
+  - "skewYY"
+  - "skewZZ"
+  - "kurtosisXX"
+  - "kurtosisYY"
+  - "kurtosisZZ"
+  - "entropyXX"
+  - "entropyYY"
+  - "entropyZZ"
+  - "ALLdaub4RR"
+  - "ALLdaub4RG"
+  - "ALLdaub4RB"
+  - "ALLdaub4H"
+  - "ALLdaub4S"
+  - "ALLdaub4V"
+  - "ALLdaub4L"
+  - "ALLdaub4a"
+  - "ALLdaub4b"
+  - "ALLdaub4Y"
+  - "ALLdaub4Cb"
+  - "ALLdaub4Cr"
+  - "ALLdaub4XX"
+  - "ALLdaub4YY"
+  - "ALLdaub4ZZ"
+categorical_columns: []
+train_ratio: 0.7
+valid_ratio: 0.15
+test_ratio: 0.15
+
+tabnet_vfl:
+  master_addr: "127.0.0.1"
+  master_port: 29000
+  num_clients: 5
+  use_cuda: True
+  epoch_failure_probability: 0.2
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+local_tabnets:
+  master_addr: "127.0.0.1"
+  master_port: 29001
+  num_clients: 5
+  use_cuda: True
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+central_tabnet:
+  use_cuda: True

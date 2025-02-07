@@ -1,0 +1,114 @@
+version: 2
+
+batch_size: 64
+epochs: 300
+
+tabnet_vfl:
+  tabnet_hyperparams:
+    n_d: 5
+    n_a: 2
+    momentum: 0.9
+    n_steps: 4
+    gamma: 1.5
+    epsilon: 1.0e-9
+    n_independent: 1
+    n_shared: 1
+    mask_type: "sparsemax"
+    pretraining_ratio: 0.5
+    n_shared_decoder: 1
+    n_indep_decoder: 1
+    lambda_sparse: 1.0e-4
+    virtual_batch_size: 128
+  decoder_split_ratios:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+  optimizer: "Adam"
+  optimizer_params:
+    lr: 1.0e-3
+    betas: !!python/tuple [0.9, 0.999]
+    weight_decay: 1.0e-4
+
+tabvfl_local_encoder:
+  tabnet_hyperparams:
+    n_d: 5
+    n_a: 2
+    momentum: 0.9
+    n_steps: 4
+    gamma: 1.5
+    epsilon: 1.0e-9
+    n_independent: 1
+    n_shared: 1
+    mask_type: "sparsemax"
+    pretraining_ratio: 0.5
+    n_shared_decoder: 1
+    n_indep_decoder: 1
+    lambda_sparse: 1.0e-4
+    virtual_batch_size: 128
+  decoder_split_ratios:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+  optimizer: "Adam"
+  optimizer_params:
+    lr: 1.0e-3
+    betas: !!python/tuple [0.9, 0.999]
+    weight_decay: 1.0e-4
+
+local_tabnets:
+  tabnet_pretrainer_params:
+    n_d: [1, 1, 1, 1, 1]
+    n_a: 2
+    momentum: 0.9
+    n_steps: 4
+    gamma: 1.5
+    epsilon: 1.0e-9
+    n_independent: 1
+    n_shared: 1 
+    clip_value: 0
+    mask_type: "sparsemax"
+    n_shared_decoder: 1 
+    n_indep_decoder: 1
+    lambda_sparse: 1.0e-4
+  optimizer: "Adam"
+  optimizer_params:
+    lr: 1.0e-3
+    betas: !!python/tuple [0.9, 0.999]
+    weight_decay: 1.0e-4
+  tabnet_pretrainer_fit_params:
+    drop_last: False
+    virtual_batch_size: 128
+    pretraining_ratio: 0.5
+    patience: 10
+    num_workers: 1
+
+central_tabnet:
+  tabnet_pretrainer_params:
+    n_d: 5
+    n_a: 2
+    momentum: 0.9
+    n_steps: 4
+    gamma: 1.5
+    epsilon: 1.0e-9
+    n_independent: 1
+    n_shared: 1
+    clip_value: 0
+    mask_type: "sparsemax"
+    n_shared_decoder: 1
+    n_indep_decoder: 1
+    lambda_sparse: 1.0e-4
+  optimizer: "Adam"
+  optimizer_params:
+    lr: 1.0e-3
+    betas: !!python/tuple [0.9, 0.999]
+    weight_decay: 1.0e-4
+  tabnet_pretrainer_fit_params:
+    drop_last: False
+    virtual_batch_size: 128
+    pretraining_ratio: 0.5
+    patience: 10
+    num_workers: 1

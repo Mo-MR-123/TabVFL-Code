@@ -1,0 +1,88 @@
+version: 2
+
+seed: 42
+
+dataset: "bank_marketing_preprocessed"
+column_label_name: "deposit"
+mixed_columns: []
+integer_columns:
+  - "age"
+  - "balance"
+  - "day"
+  - "duration"
+  - "campaign"
+  - "previous"
+  - "pdays"
+categorical_columns:
+  - "job__admin."
+  - "job__blue-collar"
+  - "job__entrepreneur"
+  - "job__housemaid"
+  - "job__management"
+  - "job__retired"
+  - "job__self-employed"
+  - "job__services"
+  - "job__student"
+  - "job__technician"
+  - "job__unemployed"
+  - "job__unknown"
+  - "marital__divorced"
+  - "marital__married"
+  - "marital__single"
+  - "education__primary"
+  - "education__secondary"
+  - "education__tertiary"
+  - "education__unknown"
+  - "contact__cellular"
+  - "contact__telephone"
+  - "contact__unknown"
+  - "month__apr"
+  - "month__aug"
+  - "month__dec"
+  - "month__feb"
+  - "month__jan"
+  - "month__jul"
+  - "month__jun"
+  - "month__mar"
+  - "month__may"
+  - "month__nov"
+  - "month__oct"
+  - "month__sep"
+  - "poutcome__failure"
+  - "poutcome__other"
+  - "poutcome__success"
+  - "poutcome__unknown"
+  - "default"
+  - "housing"
+  - "loan"
+train_ratio: 0.7
+valid_ratio: 0.15
+test_ratio: 0.15
+
+tabnet_vfl:
+  master_addr: "127.0.0.1"
+  master_port: 29000
+  num_clients: 5
+  use_cuda: True
+  epoch_failure_probability: 0.2
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+local_tabnets:
+  master_addr: "127.0.0.1"
+  master_port: 29001
+  num_clients: 5
+  use_cuda: True
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+central_tabnet:
+  use_cuda: True

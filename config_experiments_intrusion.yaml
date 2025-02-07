@@ -1,0 +1,153 @@
+version: 2
+
+seed: 42
+
+dataset: "Intrusion_preprocessed"
+column_label_name: "class"
+mixed_columns: []
+integer_columns:
+  - "duration"
+  - "service"
+  - "src_bytes"
+  - "dst_bytes"
+  - "count"
+  - "srv_count"
+  - "serror_rate"
+  - "srv_serror_rate"
+  - "rerror_rate"
+  - "srv_rerror_rate"
+  - "same_srv_rate"
+  - "diff_srv_rate"
+  - "srv_diff_host_rate"
+  - "dst_host_count"
+  - "dst_host_srv_count"
+  - "dst_host_same_srv_rate"
+  - "dst_host_diff_srv_rate"
+  - "dst_host_same_src_port_rate"
+  - "dst_host_srv_diff_host_rate"
+  - "dst_host_serror_rate"
+  - "dst_host_srv_serror_rate"
+  - "dst_host_rerror_rate"
+  - "dst_host_srv_rerror_rate"
+categorical_columns:
+  - "urgent"
+  - "land"
+  - "logged_in"
+  - "root_shell"
+  - "num_outbound_cmds"
+  - "is_host_login"
+  - "is_guest_login"
+  - "protocol_type__0"
+  - "protocol_type__1"
+  - "protocol_type__2"
+  - "flag__0"
+  - "flag__1"
+  - "flag__2"
+  - "flag__3"
+  - "flag__4"
+  - "flag__5"
+  - "flag__6"
+  - "flag__7"
+  - "flag__8"
+  - "flag__9"
+  - "flag__10"
+  - "wrong_fragment__0"
+  - "wrong_fragment__1"
+  - "wrong_fragment__2"
+  - "hot__0"
+  - "hot__1"
+  - "hot__2"
+  - "hot__3"
+  - "hot__4"
+  - "hot__5"
+  - "hot__6"
+  - "hot__7"
+  - "hot__8"
+  - "hot__9"
+  - "hot__10"
+  - "hot__11"
+  - "hot__12"
+  - "hot__13"
+  - "hot__14"
+  - "hot__15"
+  - "hot__16"
+  - "hot__17"
+  - "num_failed_logins__0"
+  - "num_failed_logins__1"
+  - "num_failed_logins__2"
+  - "num_compromised__0"
+  - "num_compromised__1"
+  - "num_compromised__2"
+  - "num_compromised__3"
+  - "num_compromised__4"
+  - "num_compromised__5"
+  - "num_compromised__6"
+  - "num_compromised__7"
+  - "num_compromised__8"
+  - "num_compromised__9"
+  - "num_compromised__10"
+  - "num_compromised__11"
+  - "num_compromised__12"
+  - "su_attempted__0"
+  - "su_attempted__1"
+  - "su_attempted__2"
+  - "num_root__0"
+  - "num_root__1"
+  - "num_root__2"
+  - "num_root__3"
+  - "num_root__4"
+  - "num_root__5"
+  - "num_root__6"
+  - "num_root__7"
+  - "num_root__8"
+  - "num_root__9"
+  - "num_root__10"
+  - "num_root__11"
+  - "num_root__12"
+  - "num_file_creations__0"
+  - "num_file_creations__1"
+  - "num_file_creations__2"
+  - "num_file_creations__3"
+  - "num_file_creations__4"
+  - "num_file_creations__5"
+  - "num_file_creations__6"
+  - "num_shells__0"
+  - "num_shells__1"
+  - "num_shells__2"
+  - "num_access_files__0"
+  - "num_access_files__1"
+  - "num_access_files__2"
+  - "num_access_files__3"
+  - "num_access_files__4"
+  - "num_access_files__5"
+train_ratio: 0.7
+valid_ratio: 0.15
+test_ratio: 0.15
+
+tabnet_vfl:
+  master_addr: "127.0.0.1"
+  master_port: 29000
+  num_clients: 5
+  use_cuda: True
+  epoch_failure_probability: 0.2
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+local_tabnets:
+  master_addr: "127.0.0.1"
+  master_port: 29001
+  num_clients: 5
+  use_cuda: True
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+central_tabnet:
+  use_cuda: True

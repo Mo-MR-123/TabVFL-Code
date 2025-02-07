@@ -1,0 +1,134 @@
+version: 2
+
+seed: 42
+
+dataset: "air_passenger_preprocessed"
+column_label_name: "satisfaction"
+mixed_columns:
+  []
+integer_columns:
+  - "Age"
+  - "Arrival Delay in Minutes"
+  - "Departure Delay in Minutes"
+  - "Flight Distance"
+categorical_columns:
+  - "Gender"
+  - "Customer Type"
+  - "Type of Travel"
+  - "Class__Business"
+  - "Class__Eco"
+  - "Class__Eco Plus"
+  - "Inflight wifi service__0"
+  - "Inflight wifi service__1"
+  - "Inflight wifi service__2"
+  - "Inflight wifi service__3"
+  - "Inflight wifi service__4"
+  - "Inflight wifi service__5"
+  - "Departure/Arrival time convenient__0"
+  - "Departure/Arrival time convenient__1"
+  - "Departure/Arrival time convenient__2"
+  - "Departure/Arrival time convenient__3"
+  - "Departure/Arrival time convenient__4"
+  - "Departure/Arrival time convenient__5"
+  - "Ease of Online booking__0"
+  - "Ease of Online booking__1"
+  - "Ease of Online booking__2"
+  - "Ease of Online booking__3"
+  - "Ease of Online booking__4"
+  - "Ease of Online booking__5"
+  - "Gate location__0"
+  - "Gate location__1"
+  - "Gate location__2"
+  - "Gate location__3"
+  - "Gate location__4"
+  - "Gate location__5"
+  - "Food and drink__0"
+  - "Food and drink__1"
+  - "Food and drink__2"
+  - "Food and drink__3"
+  - "Food and drink__4"
+  - "Food and drink__5"
+  - "Online boarding__0"
+  - "Online boarding__1"
+  - "Online boarding__2"
+  - "Online boarding__3"
+  - "Online boarding__4"
+  - "Online boarding__5"
+  - "Seat comfort__0"
+  - "Seat comfort__1"
+  - "Seat comfort__2"
+  - "Seat comfort__3"
+  - "Seat comfort__4"
+  - "Seat comfort__5"
+  - "Inflight entertainment__0"
+  - "Inflight entertainment__1"
+  - "Inflight entertainment__2"
+  - "Inflight entertainment__3"
+  - "Inflight entertainment__4"
+  - "Inflight entertainment__5"
+  - "On-board service__0"
+  - "On-board service__1"
+  - "On-board service__2"
+  - "On-board service__3"
+  - "On-board service__4"
+  - "On-board service__5"
+  - "Leg room service__0"
+  - "Leg room service__1"
+  - "Leg room service__2"
+  - "Leg room service__3"
+  - "Leg room service__4"
+  - "Leg room service__5"
+  - "Baggage handling__1"
+  - "Baggage handling__2"
+  - "Baggage handling__3"
+  - "Baggage handling__4"
+  - "Baggage handling__5"
+  - "Checkin service__0"
+  - "Checkin service__1"
+  - "Checkin service__2"
+  - "Checkin service__3"
+  - "Checkin service__4"
+  - "Checkin service__5"
+  - "Inflight service__0"
+  - "Inflight service__1"
+  - "Inflight service__2"
+  - "Inflight service__3"
+  - "Inflight service__4"
+  - "Inflight service__5"
+  - "Cleanliness__0"
+  - "Cleanliness__1"
+  - "Cleanliness__2"
+  - "Cleanliness__3"
+  - "Cleanliness__4"
+  - "Cleanliness__5"
+train_ratio: 0.7
+valid_ratio: 0.15
+test_ratio: 0.15
+
+tabnet_vfl:
+  master_addr: "127.0.0.1"
+  master_port: 29000
+  num_clients: 5
+  use_cuda: True
+  epoch_failure_probability: 0.2
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+local_tabnets:
+  master_addr: "127.0.0.1"
+  master_port: 29001
+  num_clients: 5
+  use_cuda: True
+  data_column_split:
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.2037
+    - 0.1852
+
+central_tabnet:
+  use_cuda: True
