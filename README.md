@@ -21,7 +21,7 @@ We propose TabVFL, a novel distributed VFL framework that:
 - Maintains feature correlations by learning a unified latent representation.
 - Enhances robustness against client failures during training.
 
-The project uses Torch Distributed RPC framework to enable inter-process communication (IPC) for sending and receiving values/matrices. Although the experiments are locally, the code can be extended to enable inter-process network communication. A distributed optimizer is also used to keep track of the distributed values being sent to allow backpropagation between clients. The use of this framework is inspired by the work of [Zilong Zhao](https://github.com/zhao-zilong).
+The project uses Torch Distributed RPC framework to enable inter-process communication for sending and receiving values/matrices. Although the experiments are run locally, the code can be extended to enable inter-process network communication. A distributed optimizer is also used to keep track of the distributed values being sent to allow backpropagation between clients. The use of this framework is inspired by the work of [Zilong Zhao](https://github.com/zhao-zilong).
 
 Refer to [TabNet](https://github.com/dreamquark-ai/tabnet) library for the full implementation details of the model.
 
