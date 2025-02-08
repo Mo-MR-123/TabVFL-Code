@@ -58,12 +58,12 @@ sudo apt-get install python3-venv
 
 2- Create a virtual environment called `venv` in the root project folder:
 ```
-python -m venv tabnet_venv
+python -m venv venv
 ```
 
 3- Activate virtual environment:
 ```
-source tabnet_venv/bin/activate
+source venv/bin/activate
 ```
 
 4 - Install/Setup Pytorch and other dependencies from `requirements.txt` file using shell script:
