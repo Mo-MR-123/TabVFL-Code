@@ -1,6 +1,27 @@
-# TabVFL: Improving Latent Representation in Vertical Federated Learning
+# TabVFL: A Distributed Framework for Latent Representation Learning in Vertical Federated Learning
 
-The project uses Torch Distributed RPC framework to enable inter-process communication for sending and receiving values/matrices. A distributed optimizer is also used to keep track of the distributed values being sent to allow backpropagation between clients. The use of this framework is inspired by the work of [Zhao Zilong](https://github.com/zhao-zilong).
+This code is part of my Master Thesis at TU Delft. The research is conducted under the supervision and in collaboration with Zilong Zhao, Lydia Y. Chen and Jérémie Decouchant. The [related paper](https://arxiv.org/abs/2404.17990) is submitted to arXiv and can be cited as follows: 
+```
+@misc{rashad2024tabvflimprovinglatentrepresentation,
+      title={TabVFL: Improving Latent Representation in Vertical Federated Learning}, 
+      author={Mohamed Rashad and Zilong Zhao and Jeremie Decouchant and Lydia Y. Chen},
+      year={2024},
+      eprint={2404.17990},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2404.17990}, 
+}
+```
+
+Autoencoders are widely used for compressing high-dimensional data which could enhance downstream model performance on downstream tasks. However, existing designs in VFL train separate autoencoders for each participant, potentially breaking feature correlations. To address this challenge and given the prevalence of tabular data in VFL, we adapt TabNet—a state-of-the-art model for tabular data—to the VFL setting.
+
+We propose TabVFL, a novel distributed VFL framework that:
+
+- Preserves privacy by mitigating data leakage with a fully connected layer.
+- Maintains feature correlations by learning a unified latent representation.
+- Enhances robustness against client failures during training.
+
+The project uses Torch Distributed RPC framework to enable inter-process communication (IPC) for sending and receiving values/matrices. Although the experiments are locally, the code can be extended to enable inter-process network communication. A distributed optimizer is also used to keep track of the distributed values being sent to allow backpropagation between clients. The use of this framework is inspired by the work of [Zilong Zhao](https://github.com/zhao-zilong).
 
 Refer to [TabNet](https://github.com/dreamquark-ai/tabnet) library for the full implementation details of the model.
 
@@ -146,19 +167,3 @@ For this experiment, the latent value `n_d` in the `hyperparams_experiments.sh` 
 We tested 3 runs with different seeds and manually noted the evaluation values in an excel sheet. For each datasets, we created a separate excel sheet noting the average performance of each design. These excel sheets are stored in `experiments_results/latent_data_evaluation_experiment` for each dataset. The results of all of these datasets are noted in `experiments_results/latent_eval_means_per_design.xlsx`. The `experiments_results/experiment_latent_eval_differences.xlsx` file contains the improvement of TabVFL compared to the baseline design local tabnets. The improvements are denoted for each evaluation metrics (ROC-AUC, F1-score and Accuracy). 
 
 To generate an image of the bar plots for gauging the difference in performance of the designs, the python script `experiments_results/latent_data_evaluation_plots.py` can be run. The script reads the values in `experiments_results/latent_eval_means_per_design.xlsx` for each design to create the image.
-
-## Paper and Citation
-The paper can be found here: https://arxiv.org/abs/2404.17990
-
-You can use the following BibTex format to cite the paper:
-```
-@misc{rashad2024tabvflimprovinglatentrepresentation,
-      title={TabVFL: Improving Latent Representation in Vertical Federated Learning}, 
-      author={Mohamed Rashad and Zilong Zhao and Jeremie Decouchant and Lydia Y. Chen},
-      year={2024},
-      eprint={2404.17990},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2404.17990}, 
-}
-```
